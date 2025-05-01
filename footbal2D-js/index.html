@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2D Football Game</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="game-container">
+        <div id="field">
+            <div id="center-line"></div>
+            <div id="center-circle"></div>
+            <div class="goal" id="goal-left"></div>
+            <div class="goal" id="goal-right"></div>
+            <div class="penalty-area" id="penalty-left"></div>
+            <div class="penalty-area" id="penalty-right"></div>
+            <div id="scoreboard">Team A: 0 - 0 :Team B</div>
+            <div id="timer">00:00</div>
+        </div>
+        <div id="message">
+            <div id="message-text">Ready to play!</div>
+            <button id="restart-btn">Restart Game</button>
+        </div>
+    </div>
+    <div id="controls">
+        <h3>Controls:</h3>
+        <p><strong>W, A, S, D</strong> - Move player | <strong>Space</strong> - Kick/Pass | <strong>Shift</strong> - Sprint | <strong>Arrow Keys</strong> - Switch players</p>
+        <p><strong>Q</strong> - Short pass | <strong>E</strong> - Shot | <strong>R</strong> - Change strategy</p>
+        <p>Press <strong>Enter</strong> to start the game!</p>
+    </div>
+    <script src="main.js"></script>
+</body>
+</html>
