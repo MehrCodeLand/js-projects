@@ -9,7 +9,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!gameCanvas || !mapCanvas) {
         console.error('Canvas elements not found!');
         return;
-    } // Ensure this closing brace is correctly placed and matches an opening brace.
+    }
     
     const ctx = gameCanvas.getContext('2d');
     const mapCtx = mapCanvas.getContext('2d');
@@ -25,7 +25,7 @@ document.addEventListener('DOMContentLoaded', () => {
         mapCanvas.height = mapSize;
         document.getElementById('miniMap').style.width = mapSize + 'px';
         document.getElementById('miniMap').style.height = mapSize + 'px';
-    } // Ensure this closing brace matches an opening brace
+    }
     
     resizeCanvas();
     window.addEventListener('resize', resizeCanvas);
@@ -51,7 +51,7 @@ document.addEventListener('DOMContentLoaded', () => {
             abs: true,
             hydroplaning: false,
             fogAssist: false
-        } // Ensure this closing brace matches an opening brace
+        }
     };
     
     // Player car
@@ -189,6 +189,67 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
     
+    // Helper function to shade colors
+    function shadeColor(color, percent, fogFactor = 1) {
+        if (color.startsWith('#')) {
+            color = color.slice(1);
+        }
+        
+        let R = parseInt(color.substring(0, 2), 16);
+        let G = parseInt(color.substring(2, 4), 16);
+        let B = parseInt(color.substring(4, 6), 16);
+        
+        // Apply shading
+        R = Math.floor(R * (1 + percent / 100));
+        G = Math.floor(G * (1 + percent / 100));
+        B = Math.floor(B * (1 + percent / 100));
+        
+        // Apply fog (blend with fog color)
+        if (fogFactor < 1) {
+            const fogR = 220;
+            const fogG = 220;
+            const fogB = 220;
+            
+            R = Math.floor(R * fogFactor + fogR * (1 - fogFactor));
+            G = Math.floor(G * fogFactor + fogG * (1 - fogFactor));
+            B = Math.floor(B * fogFactor + fogB * (1 - fogFactor));
+        }
+        
+        // Ensure RGB values are in valid range
+        R = Math.min(255, Math.max(0, R));
+        G = Math.min(255, Math.max(0, G));
+        B = Math.min(255, Math.max(0, B));
+        
+        // Convert back to hex
+        return `#${R.toString(16).padStart(2, '0')}${G.toString(16).padStart(2, '0')}${B.toString(16).padStart(2, '0')}`;
+    }
+    
+    // Calculate fog density at a specific position
+    function calculateFogDensityAtPosition(x, y) {
+        if (settings.weather !== 'foggy' || world.fogPatches.length === 0) {
+            return 0;
+        }
+        
+        // Sum up the influence of each fog patch based on distance
+        let totalDensity = 0;
+        for (const patch of world.fogPatches) {
+            const dx = x - patch.x;
+            const dy = y - patch.y;
+            const distSq = dx * dx + dy * dy;
+            
+            // If within the patch radius, add its density contribution
+            if (distSq < patch.radius * patch.radius) {
+                // Density falls off with distance from center
+                const dist = Math.sqrt(distSq);
+                const factor = 1 - dist / patch.radius;
+                totalDensity += patch.density * factor;
+            }
+        }
+        
+        // Cap at 1.0 for max fog density
+        return Math.min(1.0, totalDensity);
+    }
+    
     // Generate city layout
     function generateCity() {
         console.log('Generating city...');
@@ -313,7 +374,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             type: treeType,
                             // Colors for the different tree types
                             leafColor: treeType === 0 ? '#2E8B57' : 
-                                       treeType === 1 ? '#228B22' : '#32CD32',
+                                      treeType === 1 ? '#228B22' : '#32CD32',
                             trunkColor: treeType === 0 ? '#8B4513' : 
                                         treeType === 1 ? '#A0522D' : '#CD853F'
                         });
@@ -368,7 +429,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        
+        // Create horizontal roads
         for (let y = 0; y < numBlocksY; y++) {
             for (let x = 0; x < numBlocksX - 1; x++) {
                 const startX = x * blockSize - width/2 + blockSize;
@@ -400,8 +461,13 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
+        // Generate weather effects
+        setupWeatherEffects();
+        console.log('City generation complete');
+    }
 
-        function setupWeatherEffects() {
+    // Setup weather effects
+    function setupWeatherEffects() {
         // Clear previous effects
         world.raindrops = [];
         world.fogPatches = [];
@@ -505,22 +571,363 @@ document.addEventListener('DOMContentLoaded', () => {
             ui.weatherIndicator.textContent = settings.weather.toUpperCase();
         }
     }
-        // Generate weather effects
-        setupWeatherEffects();
-        console.log('City generation complete');
-        // Draw trees with perspective
-        for (const tree of world.trees) {
-            // Transform tree position to camera space
-            const tx = tree.x - player.x;
-            const ty = tree.y - player.y;
+    
+    // Update player physics
+    function updatePlayerPhysics(deltaTime) {
+        const dt = deltaTime / 1000; // Convert to seconds
+        
+        // Calculate acceleration based on driving mode and inputs
+        let currentAcceleration = 0;
+        
+        if (player.isAccelerating) {
+            // Base acceleration modified by driving mode
+            let accelModifier = 1.0;
+            if (settings.drivingMode === 'sport') {
+                accelModifier = 1.5;
+            } else if (settings.drivingMode === 'manual') {
+                // Manual mode depends on gear
+                switch (settings.currentGear) {
+                    case '1': accelModifier = 0.8; break;
+                    case '2': accelModifier = 1.2; break;
+                    case '3': accelModifier = 1.6; break;
+                    default: accelModifier = 0.2; break; // Neutral gear
+                }
+            }
+            
+            // Turbo boost
+            if (player.isTurboActive) {
+                accelModifier *= 1.5;
+            }
+            
+            currentAcceleration = player.accelerationRate * accelModifier;
+        }
+        
+        // Apply braking
+        if (player.isBraking) {
+            // Handbrake provides stronger braking force but can cause skidding
+            if (player.isHandbraking) {
+                currentAcceleration = -player.brakeForce * 1.5;
+                
+                // Handbrake can cause skidding at higher speeds
+                if (Math.abs(player.speed) > 30) {
+                    player.isSkidding = true;
+                    
+                    // Create skid marks
+                    if (Math.random() < 0.3) {
+                        player.skidMarks.push({
+                            x: player.x - Math.sin(player.angle) * 5,
+                            y: player.y + Math.cos(player.angle) * 5,
+                            width: 1 + Math.random() * 2,
+                            age: 0 // Frames
+                        });
+                    }
+                }
+            } else {
+                currentAcceleration = -player.brakeForce;
+                
+                // ABS prevents skidding during normal braking if enabled
+                player.isSkidding = !settings.assists.abs;
+            }
+        }
+        
+        // Update speed based on acceleration
+        player.speed += currentAcceleration * dt * 60;
+        
+        // Apply friction and drag
+        const friction = 0.01 * world.groundFriction;
+        const drag = 0.0003 * player.speed * player.speed; // Quadratic drag
+        
+        // Slow down more if not accelerating
+        if (!player.isAccelerating && !player.isBraking) {
+            player.speed *= (1 - friction * dt * 10);
+        } else {
+            player.speed *= (1 - friction * dt);
+        }
+        
+        // Apply drag (air resistance)
+        if (player.speed > 0) {
+            player.speed = Math.max(0, player.speed - drag * dt * 60);
+        } else {
+            player.speed = Math.min(0, player.speed + drag * dt * 60);
+        }
+        
+        // Cap speed at maximum
+        player.speed = Math.min(player.maxSpeed, Math.max(-player.maxSpeed / 2, player.speed));
+        
+        // Calculate RPM based on speed and gear
+        calculateRPM();
+        
+        // Apply steering
+        if (player.steering !== 0) {
+            // Base steering sensitivity
+            let steeringSensitivity = player.handling;
+            
+            // Adjust steering based on speed (less responsive at high speeds)
+            steeringSensitivity *= Math.max(0.2, 1 - Math.abs(player.speed) / player.maxSpeed * 0.5);
+            
+            // Apply steering angle change
+            const steeringChange = player.steering * steeringSensitivity * dt * 8;
+            player.angle += steeringChange * (player.speed / 30); // Steering effect proportional to speed
+            
+            // Apply drift if handbraking or skidding
+            if (player.isHandbraking || player.isSkidding) {
+                player.drift = steeringChange * 0.5;
+            } else {
+                player.drift *= 0.9; // Reduce drift gradually
+            }
+        } else {
+            player.drift *= 0.9; // Reduce drift gradually
+        }
+        
+        // Apply drift to angle
+        player.angle += player.drift * dt * 5;
+        
+        // Weather effects on physics
+        if (settings.weather === 'rainy') {
+            // Check for hydroplaning if moving fast enough and on a puddle
+            if (Math.abs(player.speed) > 50 && !settings.assists.hydroplaning) {
+                // Simplified puddle detection - chance-based for now
+                if (Math.random() < 0.01) {
+                    player.isHydroplaning = true;
+                    
+                    // When hydroplaning, random steering effect
+                    player.angle += (Math.random() - 0.5) * 0.05;
+                    
+                    // Show notification
+                    showFeatureNotification('Hydroplaning! Reduce Speed');
+                    
+                    // Hydroplaning ends after short time
+                    setTimeout(() => {
+                        player.isHydroplaning = false;
+                    }, 1500);
+                }
+            }
+        }
+        
+        // Move player based on speed and angle
+        const movementX = Math.sin(player.angle) * player.speed * dt;
+        const movementY = -Math.cos(player.angle) * player.speed * dt;
+        
+        player.x += movementX;
+        player.y += movementY;
+        
+        // Update skid marks age and clean up old ones
+        for (let i = player.skidMarks.length - 1; i >= 0; i--) {
+            player.skidMarks[i].age++;
+            if (player.skidMarks[i].age > 120) { // Remove after 2 seconds (60 fps × 2 sec)
+                player.skidMarks.splice(i, 1);
+            }
+        }
+        
+        // Create exhaust particles
+        if (player.isAccelerating && Math.random() < 0.2) {
+            player.exhaust.push({
+                x: player.x - Math.sin(player.angle) * 8,
+                y: player.y + Math.cos(player.angle) * 8,
+                size: 0.5 + Math.random() * 1.5,
+                opacity: 0.2 + Math.random() * 0.3,
+                age: 0
+            });
+        }
+        
+        // Update exhaust particles
+        for (let i = player.exhaust.length - 1; i >= 0; i--) {
+            player.exhaust[i].age++;
+            player.exhaust[i].opacity -= 0.01;
+            player.exhaust[i].size += 0.03;
+            
+            if (player.exhaust[i].opacity <= 0) {
+                player.exhaust.splice(i, 1);
+            }
+        }
+    }
+    
+    // Calculate RPM based on speed and gear
+    function calculateRPM() {
+        // Base RPM proportional to speed
+        let baseRPM = Math.abs(player.speed) * 30;
+        
+        // Apply gear modifier
+        let gearModifier = 1;
+        
+        switch (settings.drivingMode) {
+            case 'sport':
+                // Sport mode runs at higher RPM
+                gearModifier = 1.3;
+                break;
+                
+            case 'manual':
+                // Manual mode depends on currently selected gear
+                switch (settings.currentGear) {
+                    case 'N': gearModifier = 0.3; break; // Idle in neutral
+                    case '1': gearModifier = 2.0; break; // First gear: high RPM at low speed
+                    case '2': gearModifier = 1.2; break; // Second gear: moderate
+                    case '3': gearModifier = 0.8; break; // Third gear: lower RPM at high speed
+                    default: gearModifier = 1;
+                }
+                break;
+                
+            case 'normal':
+            default:
+                // Normal mode has automatic gear shifts
+                if (player.speed < 20) {
+                    gearModifier = 1.8; // First gear
+                } else if (player.speed < 60) {
+                    gearModifier = 1.2; // Second gear
+                } else {
+                    gearModifier = 0.8; // Third gear
+                }
+                break;
+        }
+        
+        // Calculate final RPM
+        const rpm = baseRPM * gearModifier;
+        
+        // Add some variation for realism
+        const variation = (Math.sin(Date.now() / 500) * 50);
+        
+        // Idle RPM when not moving
+        const idleRPM = 600 + variation;
+        
+        // Set RPM, with minimum idle value
+        player.rpm = player.isAccelerating ? 
+            Math.max(idleRPM, rpm + 200 + variation) : 
+            Math.max(idleRPM, rpm + variation);
+    }
+    
+    // Update weather effects
+    function updateWeatherEffects() {
+        // Update raindrops
+        if (settings.weather === 'rainy') {
+            for (let i = 0; i < world.raindrops.length; i++) {
+                const drop = world.raindrops[i];
+                
+                // Move drop down
+                drop.y += drop.speed;
+                
+                // If drop goes off screen, reset it to the top
+                if (drop.y > gameCanvas.height) {
+                    drop.y = 0;
+                    drop.x = Math.random() * gameCanvas.width;
+                }
+            }
+        }
+        
+        // Update fog patches (subtle movement)
+        if (settings.weather === 'foggy') {
+            for (let i = 0; i < world.fogPatches.length; i++) {
+                const patch = world.fogPatches[i];
+                
+                // Subtle drift
+                patch.x += Math.sin(Date.now() / 5000 + i) * 0.1;
+                patch.y += Math.cos(Date.now() / 6000 + i) * 0.1;
+            }
+        }
+    }
+    
+    // Show feature notification
+    function showFeatureNotification(text) {
+        if (ui.featureNotification && ui.featureText) {
+            ui.featureText.textContent = text;
+            ui.featureNotification.classList.remove('hidden');
+            
+            // Hide after delay
+            setTimeout(() => {
+                ui.featureNotification.classList.add('hidden');
+            }, 3000);
+        }
+    }
+    
+    // Update driving mode settings
+    function updateDrivingMode() {
+        switch (settings.drivingMode) {
+            case 'sport':
+                // Sport mode: More power, less assist
+                player.maxSpeed = 250;
+                player.accelerationRate = 0.5;
+                player.handling = 1.2;
+                settings.currentGear = 'S';
+                settings.assists.traction = false;
+                break;
+                
+            case 'manual':
+                // Manual mode: Player controls gears
+                player.maxSpeed = 220;
+                player.accelerationRate = 0.4;
+                player.handling = 1.0;
+                // Gear is set by player
+                break;
+                
+            case 'normal':
+            default:
+                // Normal mode: Balanced with all assists
+                player.maxSpeed = 180;
+                player.accelerationRate = 0.3;
+                player.handling = 0.8;
+                settings.currentGear = 'D';
+                settings.assists.traction = true;
+                settings.assists.abs = true;
+                break;
+        }
+        
+        // Update UI
+        if (ui.modeIndicator) {
+            ui.modeIndicator.textContent = settings.drivingMode.toUpperCase();
+        }
+        
+        if (ui.gearIndicator) {
+            ui.gearIndicator.textContent = settings.currentGear;
+        }
+        
+        if (ui.tractionStatus) {
+            ui.tractionStatus.textContent = settings.assists.traction ? 'ON' : 'OFF';
+            ui.tractionStatus.className = settings.assists.traction ? 'on' : 'off';
+        }
+        
+        if (ui.absStatus) {
+            ui.absStatus.textContent = settings.assists.abs ? 'ON' : 'OFF';
+            ui.absStatus.className = settings.assists.abs ? 'on' : 'off';
+        }
+    }
+    
+    // Render world function
+    function renderWorld() {
+        // Get canvas dimensions
+        const width = gameCanvas.width;
+        const height = gameCanvas.height;
+        
+        // Clear canvas
+        ctx.clearRect(0, 0, width, height);
+        
+        // Center and apply camera transformation
+        ctx.save();
+        ctx.translate(width / 2, height / 2);
+        
+        // Draw sky gradient
+        const skyGradient = ctx.createLinearGradient(0, -height / 2, 0, height / 2);
+        skyGradient.addColorStop(0, world.skyColor);
+        skyGradient.addColorStop(1, world.horizonColor);
+        
+        ctx.fillStyle = skyGradient;
+        ctx.fillRect(-width / 2, -height / 2, width, height);
+        
+        // Draw ground
+        ctx.fillStyle = '#333333';
+        ctx.fillRect(-width / 2, 0, width, height / 2);
+        
+        // Draw city blocks and buildings
+        for (const building of world.buildings) {
+            // Transform building position to camera space
+            const bx = building.x - player.x;
+            const by = building.y - player.y;
             
             // Rotate based on player's angle
             const cosA = Math.cos(-player.angle);
             const sinA = Math.sin(-player.angle);
-            const rotX = tx * cosA - ty * sinA;
-            const rotY = tx * sinA + ty * cosA;
+            const rotX = bx * cosA - by * sinA;
+            const rotY = bx * sinA + by * cosA;
             
-            // Only draw trees that are in front of the player
+            // Only draw buildings that are in front of the player
             if (rotY > 0) {
                 // Calculate perspective scaling based on distance
                 const distance = rotY;
@@ -528,11 +935,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 // Calculate screen coordinates
                 const screenX = rotX * scale;
-                const screenY = height / 2 - (camera.height * scale) - 10 / distance;
+                const screenY = height / 2 - (camera.height * scale);
                 
                 // Calculate screen dimensions
-                const screenHeight = tree.height * scale;
-                const trunkWidth = tree.trunkWidth * scale;
+                const screenWidth = building.width * scale;
+                const screenHeight = building.height * scale;
+                const screenDepth = building.depth * scale;
                 
                 // Only draw if at least partially on screen
                 if (Math.abs(screenX) < width / 2 + screenWidth) {
@@ -545,678 +953,170 @@ document.addEventListener('DOMContentLoaded', () => {
                         fogFactor *= 1 - calculateFogDensityAtPosition(building.x, building.y) * 0.5;
                     }
                     
-                    // Draw trunk
-                    ctx.fillStyle = shadeColor(tree.trunkColor, 0, fogFactor);
+                    // Front face
+                    ctx.fillStyle = shadeColor(building.color, 0, fogFactor);
                     ctx.fillRect(
-                        screenX - trunkWidth / 2,
+                        screenX - screenWidth / 2,
                         screenY - screenHeight,
-                        trunkWidth,
+                        screenWidth,
                         screenHeight
                     );
                     
-                    // Draw tree crown based on type
-                    ctx.fillStyle = shadeColor(tree.leafColor, 0, fogFactor);
+                    // Side face if visible
+                    if (rotX > 0) {
+                        ctx.fillStyle = shadeColor(building.color, -20, fogFactor); // Darker for side
+                    } else {
+                        ctx.fillStyle = shadeColor(building.color, -10, fogFactor); // Slightly darker
+                    }
                     
-                    if (tree.type === 0) { // Pine
-                        // Draw cone shape
-                        const crownWidth = screenHeight * 0.7;
-                        ctx.beginPath();
-                        ctx.moveTo(screenX, screenY - screenHeight - crownWidth);
-                        ctx.lineTo(screenX + crownWidth / 2, screenY - screenHeight);
-                        ctx.lineTo(screenX - crownWidth / 2, screenY - screenHeight);
-                        ctx.closePath();
-                        ctx.fill();
+                    // Draw building side
+                    ctx.beginPath();
+                    ctx.moveTo(screenX + screenWidth / 2, screenY - screenHeight);
+                    ctx.lineTo(screenX + screenWidth / 2, screenY);
+                    ctx.lineTo(screenX + screenWidth / 2 + screenDepth, screenY);
+                    ctx.lineTo(screenX + screenWidth / 2 + screenDepth, screenY - screenHeight);
+                    ctx.closePath();
+                    ctx.fill();
+                    
+                    // Draw windows
+                    if (building.floors > 0) {
+                        const floorHeight = screenHeight / building.floors;
+                        const windowWidth = screenWidth * 0.15;
+                        const windowHeight = floorHeight * 0.7;
+                        const windowsPerFloor = Math.floor(screenWidth / (windowWidth * 1.5));
                         
-                        // Second layer
-                        ctx.beginPath();
-                        ctx.moveTo(screenX, screenY - screenHeight * 0.7 - crownWidth);
-                        ctx.lineTo(screenX + crownWidth * 0.7, screenY - screenHeight * 0.7);
-                        ctx.lineTo(screenX - crownWidth * 0.7, screenY - screenHeight * 0.7);
-                        ctx.closePath();
-                        ctx.fill();
-                    } else if (tree.type === 1) { // Oak
-                        // Draw round crown
-                        ctx.beginPath();
-                        ctx.arc(screenX, screenY - screenHeight - screenHeight * 0.4, screenHeight * 0.5, 0, Math.PI * 2);
-                        ctx.fill();
-                    } else { // Palm
-                        // Draw palm leaves
-                        const leafSize = screenHeight * 0.7;
-                        ctx.beginPath();
-                        ctx.ellipse(screenX, screenY - screenHeight - leafSize * 0.3, leafSize * 0.6, leafSize * 0.3, 0, 0, Math.PI * 2);
-                        ctx.fill();
+                        ctx.fillStyle = shadeColor(building.windowTint, 0, fogFactor);
                         
-                        // Draw individual leaves
-                        for (let i = 0; i < 7; i++) {
-                            const angle = i * Math.PI / 3.5;
-                            ctx.save();
-                            ctx.translate(screenX, screenY - screenHeight - leafSize * 0.1);
-                            ctx.rotate(angle);
+                        for (let floor = 0; floor < building.floors; floor++) {
+                            const windowY = screenY - screenHeight + floor * floorHeight + (floorHeight - windowHeight) / 2;
                             
-                            // Leaf shape
-                            ctx.beginPath();
-                            ctx.moveTo(0, 0);
-                            ctx.quadraticCurveTo(leafSize * 0.4, -leafSize * 0.2, leafSize, 0);
-                            ctx.quadraticCurveTo(leafSize * 0.4, leafSize * 0.2, 0, 0);
-                            ctx.fill();
-                            
-                            ctx.restore();
+                            for (let w = 0; w < windowsPerFloor; w++) {
+                                // Skip some windows randomly
+                                if (Math.random() < building.details.windowDensity) {
+                                    const windowX = screenX - screenWidth / 2 + (w + 0.5) * (screenWidth / windowsPerFloor);
+                                    
+                                    ctx.fillRect(
+                                        windowX - windowWidth / 2,
+                                        windowY,
+                                        windowWidth,
+                                        windowHeight
+                                    );
+                                }
+                            }
                         }
                     }
-                }
-            }
-        }
-        
-        // Draw props (lamp posts, benches, etc.) with perspective
-        for (const prop of world.props) {
-            // Transform prop position to camera space
-            const px = prop.x - player.x;
-            const py = prop.y - player.y;
-            
-            // Rotate based on player's angle
-            const cosA = Math.cos(-player.angle);
-            const sinA = Math.sin(-player.angle);
-            const rotX = px * cosA - py * sinA;
-            const rotY = px * sinA + py * cosA;
-            
-            // Only draw props that are in front of the player
-            if (rotY > 0) {
-                // Calculate perspective scaling based on distance
-                const distance = rotY;
-                const scale = 50 / distance;
-                
-                // Calculate screen coordinates
-                const screenX = rotX * scale;
-                const screenY = height / 2 - (camera.height * scale) - 10 / distance;
-                
-                // Only draw if at least partially on screen
-                if (Math.abs(screenX) < width / 2 + 50) {
-                    // Calculate fog factor based on distance
-                    let fogFactor = 1;
-                    if (settings.weather === 'foggy') {
-                        // More fog with distance
-                        fogFactor = Math.max(0, 1 - distance / 300);
-                        // Also apply local fog density
-                        fogFactor *= 1 - calculateFogDensityAtPosition(prop.x, prop.y) * 0.5;
+                    
+                    // Draw building details
+                    if (building.details.hasAwning && distance < 200) {
+                        // Awning
+                        ctx.fillStyle = shadeColor('#FF0000', 0, fogFactor); // Red awning
+                        ctx.fillRect(
+                            screenX - screenWidth / 2,
+                            screenY - screenHeight / 10,
+                            screenWidth,
+                            screenHeight / 20
+                        );
                     }
                     
-                    // Draw based on prop type
-                    switch (prop.type) {
-                        case 'lampPost':
-                            // Draw post
-                            ctx.fillStyle = shadeColor('#888888', 0, fogFactor);
-                            const lampPostWidth = 2 * scale;
-                            const lampPostHeight = prop.height * scale;
-                            ctx.fillRect(
-                                screenX - lampPostWidth / 2,
-                                screenY - postHeight,
-                                lampPostWidth,
-                                postHeight
-                            );
-                            
-                            // Draw light
-                            if (prop.isLit) {
-                                // Light fixture
-                                ctx.fillStyle = shadeColor('#444444', 0, fogFactor);
-                                ctx.fillRect(
-                                    screenX - postWidth * 2,
-                                    screenY - postHeight,
-                                    postWidth * 4,
-                                    postWidth * 2
-                                );
-                                
-                                // Light glow
-                                const gradient = ctx.createRadialGradient(
-                                    screenX, screenY - postHeight, 0,
-                                    screenX, screenY - postHeight, postWidth * 8
-                                );
-                                gradient.addColorStop(0, 'rgba(255, 255, 200, 0.7)');
-                                gradient.addColorStop(1, 'rgba(255, 255, 200, 0)');
-                                ctx.fillStyle = gradient;
-                                ctx.beginPath();
-                                ctx.arc(screenX, screenY - postHeight, postWidth * 8, 0, Math.PI * 2);
-                                ctx.fill();
-                            }
-                            break;
-                            
-                        case 'bench':
-                            // Draw bench
-                            ctx.fillStyle = shadeColor('#8B4513', 0, fogFactor); // Brown
-                            const benchWidth = 10 * scale;
-                            const benchHeight = 5 * scale;
-                            const benchDepth = 4 * scale;
-                            
-                            // Adjust for rotation
-                            ctx.save();
-                            ctx.translate(screenX, screenY);
-                            ctx.rotate(prop.rot);
-                            
-                            // Seat
-                            ctx.fillRect(-benchWidth / 2, -benchHeight, benchWidth, benchHeight / 2);
-                            
-                            // Backrest
-                            ctx.fillRect(-benchWidth / 2, -benchHeight, benchWidth / 10, -benchHeight);
-                            ctx.fillRect(benchWidth / 2 - benchWidth / 10, -benchHeight, benchWidth / 10, -benchHeight);
-                            
-                            ctx.restore();
-                            break;
-                            
-                        case 'trashCan':
-                            // Draw trash can
-                            ctx.fillStyle = shadeColor('#2F4F4F', 0, fogFactor); // Dark slate gray
-                            const canRadius = 4 * scale;
-                            const canHeight = 8 * scale;
-                            
-                            ctx.beginPath();
-                            ctx.arc(screenX, screenY, canRadius, 0, Math.PI * 2);
-                            ctx.fill();
-                            
-                            ctx.beginPath();
-                            ctx.arc(screenX, screenY - canHeight, canRadius, 0, Math.PI * 2);
-                            ctx.fill();
-                            
-                            // Connect the circles
-                            ctx.beginPath();
-                            ctx.moveTo(screenX - canRadius, screenY);
-                            ctx.lineTo(screenX - canRadius, screenY - canHeight);
-                            ctx.lineTo(screenX + canRadius, screenY - canHeight);
-                            ctx.lineTo(screenX + canRadius, screenY);
-                            ctx.fill();
-                            break;
-                            
-                        case 'mailbox':
-                            // Draw mailbox
-                            ctx.fillStyle = shadeColor('#000080', 0, fogFactor); // Navy blue
-                            const boxWidth = 5 * scale;
-                            const boxHeight = 8 * scale;
-                            const postWidth = 2 * scale;
-                            const postHeight = 12 * scale;
-                            
-                            // Post
-                            ctx.fillRect(
-                                screenX - postWidth / 2,
-                                screenY - postHeight,
-                                postWidth,
-                                postHeight
-                            );
-                            
-                            // Box
-                            ctx.fillRect(
-                                screenX - boxWidth / 2,
-                                screenY - postHeight + boxHeight / 2,
-                                boxWidth,
-                                boxHeight
-                            );
-                            break;
-                            
-                        case 'fireHydrant':
-                            // Draw fire hydrant
-                            ctx.fillStyle = shadeColor('#FF0000', 0, fogFactor); // Red
-                            const hydrantRadius = 3 * scale;
-                            const hydrantHeight = 6 * scale;
-                            
-                            // Main body
-                            ctx.beginPath();
-                            ctx.rect(
-                                screenX - hydrantRadius,
-                                screenY - hydrantHeight,
-                                hydrantRadius * 2,
-                                hydrantHeight
-                            );
-                            ctx.fill();
-                            
-                            // Top cap
-                            ctx.fillStyle = shadeColor('#A0A0A0', 0, fogFactor); // Silver
-                            ctx.beginPath();
-                            ctx.arc(screenX, screenY - hydrantHeight, hydrantRadius * 1.2, 0, Math.PI * 2);
-                            ctx.fill();
-                            
-                            // Side connectors
-                            ctx.beginPath();
-                            ctx.arc(screenX - hydrantRadius, screenY - hydrantHeight * 0.3, hydrantRadius * 0.4, 0, Math.PI * 2);
-                            ctx.fill();
-                            
-                            ctx.beginPath();
-                            ctx.arc(screenX + hydrantRadius, screenY - hydrantHeight * 0.3, hydrantRadius * 0.4, 0, Math.PI * 2);
-                            ctx.fill();
-                            break;
+                    if (building.details.hasDoor && distance < 200) {
+                        // Door
+                        ctx.fillStyle = shadeColor('#8B4513', 0, fogFactor); // Brown door
+                        const doorWidth = screenWidth * 0.2;
+                        const doorHeight = screenHeight * 0.05;
+                        ctx.fillRect(
+                            screenX - doorWidth / 2,
+                            screenY - doorHeight,
+                            doorWidth,
+                            doorHeight
+                        );
+                    }
+                    
+                    if (building.details.hasAntenna && distance < 250) {
+                        // Antenna on roof
+                        ctx.strokeStyle = shadeColor('#A0A0A0', 0, fogFactor); // Silver
+                        ctx.lineWidth = Math.max(1, scale);
+                        ctx.beginPath();
+                        ctx.moveTo(screenX, screenY - screenHeight);
+                        ctx.lineTo(screenX, screenY - screenHeight - screenHeight * 0.1);
+                        ctx.stroke();
                     }
                 }
             }
         }
         
-        // Draw weather effects (rain, fog)
-        if (settings.weather === 'rainy') {
-            // Draw raindrops
-            ctx.strokeStyle = 'rgba(200, 200, 255, 0.5)';
-            ctx.lineWidth = 1;
-            
-            for (const drop of world.raindrops) {
-                ctx.beginPath();
-                ctx.moveTo(drop.x, drop.y);
-                ctx.lineTo(drop.x - drop.length * 0.5, drop.y + drop.length);
-                ctx.stroke();
-            }
-            
-            // Draw puddles
-            for (const puddle of world.puddles) {
-                // Only draw puddles in front of the player
-                const px = puddle.x - player.x;
-                const py = puddle.y - player.y;
-                
-                // Rotate based on player's angle
-                const cosA = Math.cos(-player.angle);
-                const sinA = Math.sin(-player.angle);
-                const rotX = px * cosA - py * sinA;
-                const rotY = px * sinA + py * cosA;
-                
-                if (rotY > 0) {
-                    // Calculate perspective scaling based on distance
-                    const distance = rotY;
-                    const scale = 50 / distance;
-                    
-                    // Calculate screen coordinates
-                    const screenX = rotX * scale;
-                    const screenY = height / 2 - 5 / distance; // Puddles are on the ground
-                    
-                    // Calculate screen dimensions
-                    const screenRadius = puddle.radius * scale;
-                    
-                    // Draw puddle
-                    const gradient = ctx.createRadialGradient(
-                        screenX, screenY, 0,
-                        screenX, screenY, screenRadius
-                    );
-                    gradient.addColorStop(0, 'rgba(100, 100, 150, 0.3)');
-                    gradient.addColorStop(1, 'rgba(100, 100, 150, 0.1)');
-                    ctx.fillStyle = gradient;
-                    ctx.beginPath();
-                    ctx.ellipse(screenX, screenY, screenRadius, screenRadius / 2, 0, 0, Math.PI * 2);
-                    ctx.fill();
-                }
-            }
-        } else if (settings.weather === 'foggy') {
-            // Draw fog patches
-            ctx.fillStyle = 'rgba(220, 220, 220, 0.3)';
-            
-            // Create overall fog effect
-            ctx.save();
-            const fogAmount = 0.3 + calculateFogDensityAtPosition(player.x, player.y) * 0.4;
-            ctx.fillStyle = `rgba(220, 220, 220, ${fogAmount})`;
-            ctx.fillRect(-width / 2, -height / 2, width, height);
-            ctx.restore();
-        }
-        
-        // Draw skid marks
-        for (const skid of player.skidMarks) {
-            // Transform skid mark position to camera space
-            const sx = skid.x - player.x;
-            const sy = skid.y - player.y;
+        // Draw roads
+        for (const road of world.roads) {
+            // Transform road start and end to camera space
+            const startX = road.start.x - player.x;
+            const startY = road.start.y - player.y;
+            const endX = road.end.x - player.x;
+            const endY = road.end.y - player.y;
             
             // Rotate based on player's angle
             const cosA = Math.cos(-player.angle);
             const sinA = Math.sin(-player.angle);
-            const rotX = sx * cosA - sy * sinA;
-            const rotY = sx * sinA + sy * cosA;
+            const rotStartX = startX * cosA - startY * sinA;
+            const rotStartY = startX * sinA + startY * cosA;
+            const rotEndX = endX * cosA - endY * sinA;
+            const rotEndY = endX * sinA + endY * cosA;
             
-            // Only draw skid marks that are in front of the player
-            if (rotY > 0) {
-                // Calculate perspective scaling based on distance
-                const distance = rotY;
-                const scale = 50 / distance;
+            // Only draw roads that are at least partially in front of the player
+            if (rotStartY > 0 || rotEndY > 0) {
+                // Calculate perspective scaling based on distances
+                const startScale = rotStartY > 0 ? 50 / rotStartY : 0;
+                const endScale = rotEndY > 0 ? 50 / rotEndY : 0;
                 
                 // Calculate screen coordinates
-                const screenX = rotX * scale;
-                const screenY = height / 2 - 1 / distance; // Skid marks are on the ground
+                let screenStartX, screenStartY, screenEndX, screenEndY;
                 
-                // Calculate screen dimensions
-                const screenRadius = skid.width * scale;
+                // Handle case where start or end is behind camera
+                if (rotStartY <= 0) {
+                    // Calculate intersection with camera plane
+                    const t = -rotStartY / (rotEndY - rotStartY);
+                    const interX = rotStartX + t * (rotEndX - rotStartX);
+                    
+                    screenStartX = interX * endScale;
+                    screenStartY = height / 2;
+                } else {
+                    screenStartX = rotStartX * startScale;
+                    screenStartY = height / 2 - 1 / rotStartY; // Slight offset for ground
+                }
                 
-                // Draw skid mark
-                const opacity = Math.max(0, 1 - skid.age / 30);
-                ctx.fillStyle = `rgba(0, 0, 0, ${opacity * 0.7})`;
+                if (rotEndY <= 0) {
+                    // Calculate intersection with camera plane
+                    const t = -rotEndY / (rotStartY - rotEndY);
+                    const interX = rotEndX + t * (rotStartX - rotEndX);
+                    
+                    screenEndX = interX * startScale;
+                    screenEndY = height / 2;
+                } else {
+                    screenEndX = rotEndX * endScale;
+                    screenEndY = height / 2 - 1 / rotEndY; // Slight offset for ground
+                }
+                
+                // Calculate road width at each end
+                const startWidth = road.width * startScale;
+                const endWidth = road.width * endScale;
+                
+                // Draw road
+                ctx.strokeStyle = '#555555';
+                ctx.lineWidth = Math.max(startWidth, endWidth);
                 ctx.beginPath();
-                ctx.arc(screenX, screenY, screenRadius, 0, Math.PI * 2);
-                ctx.fill();
-            }
-        }
-        
-        // Draw exhaust particles
-        for (const particle of player.exhaust) {
-            // Transform particle position to camera space
-            const px = particle.x - player.x;
-            const py = particle.y - player.y;
-            
-            // Rotate based on player's angle
-            const cosA = Math.cos(-player.angle);
-            const sinA = Math.sin(-player.angle);
-            const rotX = px * cosA - py * sinA;
-            const rotY = px * sinA + py * cosA;
-            
-            // Only draw particles that are in front of the player
-            if (rotY > 0) {
-                // Calculate perspective scaling based on distance
-                const distance = rotY;
-                const scale = 50 / distance;
-                
-                // Calculate screen coordinates
-                const screenX = rotX * scale;
-                const screenY = height / 2 - (camera.height * 0.7) * scale - 5 / distance;
-                
-                // Calculate screen dimensions
-                const screenRadius = particle.size * scale;
-                
-                // Draw particle
-                ctx.fillStyle = `rgba(200, 200, 200, ${particle.opacity})`;
-                ctx.beginPath();
-                ctx.arc(screenX, screenY, screenRadius, 0, Math.PI * 2);
-                ctx.fill();
-            }
-        }
-        
-        // Reset transform
-        ctx.restore();
-        
-        // Draw HUD and UI elements
-        if (game.showHUD) {
-            // Draw speedometer
-            ctx.save();
-            ctx.translate(width - 120, height - 120);
-            
-            // Speedometer background
-            ctx.beginPath();
-            ctx.arc(0, 0, 80, 0, Math.PI * 2);
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-            ctx.fill();
-            
-            // Speed markers
-            ctx.strokeStyle = 'white';
-            ctx.lineWidth = 2;
-            for (let i = 0; i <= 12; i++) {
-                const angle = i * Math.PI / 6 - Math.PI / 2;
-                const innerRadius = i % 3 === 0 ? 55 : 65;
-                
-                ctx.beginPath();
-                ctx.moveTo(Math.cos(angle) * innerRadius, Math.sin(angle) * innerRadius);
-                ctx.lineTo(Math.cos(angle) * 75, Math.sin(angle) * 75);
+                ctx.moveTo(screenStartX, screenStartY);
+                ctx.lineTo(screenEndX, screenEndY);
                 ctx.stroke();
                 
-                // Add number labels for major ticks
-                if (i % 3 === 0) {
-                    const speed = i * 20;
-                    const textX = Math.cos(angle) * 40;
-                    const textY = Math.sin(angle) * 40;
-                    
-                    ctx.fillStyle = 'white';
-                    ctx.textAlign = 'center';
-                    ctx.textBaseline = 'middle';
-                    ctx.font = '12px Arial';
-                    ctx.fillText(speed.toString(), textX, textY);
-                }
-            }
-            
-            // Speed needle
-            const speed = Math.abs(Math.min(player.speed, player.maxSpeed));
-            const speedAngle = (speed / 240) * Math.PI * 2 - Math.PI / 2;
-            
-            ctx.beginPath();
-            ctx.moveTo(0, 0);
-            ctx.lineTo(Math.cos(speedAngle) * 70, Math.sin(speedAngle) * 70);
-            ctx.strokeStyle = 'red';
-            ctx.lineWidth = 3;
-            ctx.stroke();
-            
-            // Center cap
-            ctx.beginPath();
-            ctx.arc(0, 0, 8, 0, Math.PI * 2);
-            ctx.fillStyle = '#444';
-            ctx.fill();
-            
-            // Digital speed display
-            ctx.fillStyle = 'white';
-            ctx.textAlign = 'center';
-            ctx.font = '24px Arial';
-            ctx.fillText(Math.floor(speed).toString(), 0, 30);
-            
-            ctx.font = '12px Arial';
-            ctx.fillText('km/h', 0, 48);
-            
-            ctx.restore();
-            
-            // Draw tachometer (RPM gauge)
-            ctx.save();
-            ctx.translate(width - 280, height - 120);
-            
-            // Tachometer background
-            ctx.beginPath();
-            ctx.arc(0, 0, 80, 0, Math.PI * 2);
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-            ctx.fill();
-            
-            // RPM markers
-            ctx.strokeStyle = 'white';
-            ctx.lineWidth = 2;
-            for (let i = 0; i <= 10; i++) {
-                const angle = i * Math.PI / 5 - Math.PI / 2;
-                const innerRadius = i % 2 === 0 ? 55 : 65;
-                
+                // Draw center line
+                ctx.strokeStyle = '#FFFF00';
+                ctx.lineWidth = 1;
+                ctx.setLineDash([5, 5]);
                 ctx.beginPath();
-                ctx.moveTo(Math.cos(angle) * innerRadius, Math.sin(angle) * innerRadius);
-                ctx.lineTo(Math.cos(angle) * 75, Math.sin(angle) * 75);
+                ctx.moveTo(screenStartX, screenStartY);
+                ctx.lineTo(screenEndX, screenEndY);
                 ctx.stroke();
-                
-                // Add number labels for major ticks
-                if (i % 2 === 0) {
-                    const rpm = i * 1000;
-                    const textX = Math.cos(angle) * 40;
-                    const textY = Math.sin(angle) * 40;
-                    
-                    ctx.fillStyle = 'white';
-                    ctx.textAlign = 'center';
-                    ctx.textBaseline = 'middle';
-                    ctx.font = '12px Arial';
-                    ctx.fillText((rpm / 1000).toString(), textX, textY);
-                }
+                ctx.setLineDash([]);
             }
-            
-            // RPM red zone
-            ctx.beginPath();
-            ctx.arc(0, 0, 75, Math.PI * 0.7, Math.PI * 1.5);
-            ctx.strokeStyle = 'red';
-            ctx.lineWidth = 10;
-            ctx.stroke();
-            
-            // RPM needle
-            const rpmAngle = (player.rpm / 8000) * Math.PI * 2 - Math.PI / 2;
-            
-            ctx.beginPath();
-            ctx.moveTo(0, 0);
-            ctx.lineTo(Math.cos(rpmAngle) * 70, Math.sin(rpmAngle) * 70);
-            ctx.strokeStyle = player.rpm > 6500 ? 'red' : 'yellow';
-            ctx.lineWidth = 3;
-            ctx.stroke();
-            
-            // Center cap
-            ctx.beginPath();
-            ctx.arc(0, 0, 8, 0, Math.PI * 2);
-            ctx.fillStyle = '#444';
-            ctx.fill();
-            
-            // Digital RPM display
-            ctx.fillStyle = 'white';
-            ctx.textAlign = 'center';
-            ctx.font = '24px Arial';
-            ctx.fillText(Math.floor(player.rpm).toString(), 0, 30);
-            
-            ctx.font = '12px Arial';
-            ctx.fillText('RPM', 0, 48);
-            
-            ctx.restore();
-            
-            // Draw gear indicator
-            ctx.save();
-            ctx.translate(width - 200, height - 50);
-            
-            // Gear box
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-            ctx.fillRect(-30, -30, 60, 60);
-            
-            // Gear text
-            ctx.fillStyle = 'white';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.font = '36px Arial Bold';
-            ctx.fillText(settings.currentGear, 0, 0);
-            
-            ctx.restore();
-            
-            // Draw driving mode indicator
-            ctx.save();
-            ctx.translate(width - 360, height - 50);
-            
-            // Mode box
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-            ctx.fillRect(-50, -20, 100, 40);
-            
-            // Mode text
-            ctx.fillStyle = settings.drivingMode === 'sport' ? '#FF4500' : 'white';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.font = '18px Arial';
-            ctx.fillText(settings.drivingMode.toUpperCase(), 0, 0);
-            
-            ctx.restore();
-            
-            // Draw weather indicator
-            ctx.save();
-            ctx.translate(width - 480, height - 50);
-            
-            // Weather box
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-            ctx.fillRect(-50, -20, 100, 40);
-            
-            // Weather text
-            ctx.fillStyle = settings.weather === 'sunny' ? '#FFD700' : 
-                            settings.weather === 'rainy' ? '#00BFFF' : '#A9A9A9';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.font = '18px Arial';
-            ctx.fillText(settings.weather.toUpperCase(), 0, 0);
-            
-            ctx.restore();
-            
-            // Draw assist indicators
-            ctx.save();
-            ctx.translate(80, height - 80);
-            
-            // Assists background
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-            ctx.fillRect(-70, -70, 140, 140);
-            
-            // Assist labels and status
-            ctx.fillStyle = 'white';
-            ctx.textAlign = 'left';
-            ctx.font = '14px Arial';
-            
-            // TCS (Traction Control)
-            ctx.fillText('TCS:', -60, -40);
-            ctx.fillStyle = settings.assists.traction ? '#00FF00' : '#FF0000';
-            ctx.fillText(settings.assists.traction ? 'ON' : 'OFF', 0, -40);
-            
-            // ABS
-            ctx.fillStyle = 'white';
-            ctx.fillText('ABS:', -60, -10);
-            ctx.fillStyle = settings.assists.abs ? '#00FF00' : '#FF0000';
-            ctx.fillText(settings.assists.abs ? 'ON' : 'OFF', 0, -10);
-            
-            // Hydroplaning Assist
-            ctx.fillStyle = 'white';
-            ctx.fillText('HYDRO:', -60, 20);
-            ctx.fillStyle = settings.assists.hydroplaning ? '#00FF00' : '#FF0000';
-            ctx.fillText(settings.assists.hydroplaning ? 'ON' : 'OFF', 0, 20);
-            
-            // Fog Assist
-            ctx.fillStyle = 'white';
-            ctx.fillText('FOG:', -60, 50);
-            ctx.fillStyle = settings.assists.fogAssist ? '#00FF00' : '#FF0000';
-            ctx.fillText(settings.assists.fogAssist ? 'ON' : 'OFF', 0, 50);
-            
-            ctx.restore();
         }
-        
-        // Draw mini-map
-        if (!game.bigMap) {
-            // Draw to the mini-map canvas
-            const mapCtx = mapCanvas.getContext('2d');
-            const mapSize = mapCanvas.width;
-            
-            // Clear the mini-map
-            mapCtx.fillStyle = '#111';
-            mapCtx.fillRect(0, 0, mapSize, mapSize);
-            
-            // Calculate the scale for the mini-map (how much world space fits on the map)
-            const miniMapRange = 300; // How far to show on the mini-map
-            const mapScale = mapSize / (miniMapRange * 2);
-            
-            // Center the map on the player
-            mapCtx.save();
-            mapCtx.translate(mapSize / 2, mapSize / 2);
-            
-            // Rotate the map based on player angle (so up is always forward)
-            mapCtx.rotate(player.angle);
-            
-            // Draw roads
-            mapCtx.strokeStyle = '#444';
-            mapCtx.lineWidth = 2;
-            
-            for (const road of world.roads) {
-                const startX = (road.start.x - player.x) * mapScale;
-                const startY = (road.start.y - player.y) * mapScale;
-                const endX = (road.end.x - player.x) * mapScale;
-                const endY = (road.end.y - player.y) * mapScale;
-                
-                if (Math.abs(startX) < mapSize / 2 && Math.abs(startY) < mapSize / 2 ||
-                    Math.abs(endX) < mapSize / 2 && Math.abs(endY) < mapSize / 2) {
-                    mapCtx.beginPath();
-                    mapCtx.moveTo(startX, startY);
-                    mapCtx.lineTo(endX, endY);
-                    mapCtx.stroke();
-                }
-            }
-            
-            // Draw buildings
-            mapCtx.fillStyle = '#666';
-            
-            for (const building of world.buildings) {
-                const bx = (building.x - player.x) * mapScale;
-                const by = (building.y - player.y) * mapScale;
-                
-                if (Math.abs(bx) < mapSize / 2 && Math.abs(by) < mapSize / 2) {
-                    mapCtx.fillRect(
-                        bx - (building.width / 2) * mapScale,
-                        by - (building.depth / 2) * mapScale,
-                        building.width * mapScale,
-                        building.depth * mapScale
-                    );
-                }
-            }
-            
-            // Draw player (as a triangle pointing in the driving direction)
-            mapCtx.fillStyle = '#FF0000';
-            mapCtx.beginPath();
-            mapCtx.moveTo(0, -5);
-            mapCtx.lineTo(-3, 3);
-            mapCtx.lineTo(3, 3);
-            mapCtx.closePath();
-            mapCtx.fill();
-            
-            mapCtx.restore();
-        }
-    }
-    
-    // Draw the minimap
-    function drawMiniMap() {
-        // Implementation...
     }
     
     // Handle keyboard input
@@ -1403,89 +1303,108 @@ document.addEventListener('DOMContentLoaded', () => {
         // Start button event listener
         if (ui.startMenu && document.getElementById('startGame')) {
             document.getElementById('startGame').addEventListener('click', () => {
+                console.log('Start button clicked');
                 ui.startMenu.classList.add('hidden');
                 game.isRunning = true;
                 gameLoop(0);
             });
         }
         
-        // Controls button event listener
-        if (document.getElementById('showControls')) {
-            document.getElementById('showControls').addEventListener('click', () => {
-                game.showControls = !game.showControls;
-                if (game.showControls) {
-                    ui.gameControls.classList.remove('hidden');
-                } else {
-                    ui.gameControls.classList.add('hidden');
-                }
+        // Controls button event listeners
+        if (document.getElementById('controlsBtn')) {
+            document.getElementById('controlsBtn').addEventListener('click', () => {
+                game.showControls = true;
+                ui.gameControls.classList.remove('hidden');
             });
         }
         
-        // Weather selection event listeners
-        if (document.getElementById('weatherSunny')) {
-            document.getElementById('weatherSunny').addEventListener('click', () => {
+        if (document.getElementById('closeControls')) {
+            document.getElementById('closeControls').addEventListener('click', () => {
+                game.showControls = false;
+                ui.gameControls.classList.add('hidden');
+            });
+        }
+        
+        // Pause button event listener
+        if (document.getElementById('pauseBtn')) {
+            document.getElementById('pauseBtn').addEventListener('click', togglePause);
+        }
+        
+        // Resume game button
+        if (document.getElementById('resumeGame')) {
+            document.getElementById('resumeGame').addEventListener('click', () => {
+                togglePause();
+            });
+        }
+        
+        // Weather button event listeners
+        if (document.getElementById('sunnybtn')) {
+            document.getElementById('sunnybtn').addEventListener('click', () => {
+                // Remove active class from all weather buttons
+                document.querySelectorAll('.weather-btn').forEach(btn => btn.classList.remove('active'));
+                // Add active class to clicked button
+                document.getElementById('sunnybtn').classList.add('active');
                 settings.weather = 'sunny';
                 setupWeatherEffects();
             });
         }
         
-        if (document.getElementById('weatherRainy')) {
-            document.getElementById('weatherRainy').addEventListener('click', () => {
+        if (document.getElementById('rainybtn')) {
+            document.getElementById('rainybtn').addEventListener('click', () => {
+                // Remove active class from all weather buttons
+                document.querySelectorAll('.weather-btn').forEach(btn => btn.classList.remove('active'));
+                // Add active class to clicked button
+                document.getElementById('rainybtn').classList.add('active');
                 settings.weather = 'rainy';
                 setupWeatherEffects();
             });
         }
         
-        if (document.getElementById('weatherFoggy')) {
-            document.getElementById('weatherFoggy').addEventListener('click', () => {
+        if (document.getElementById('foggybtn')) {
+            document.getElementById('foggybtn').addEventListener('click', () => {
+                // Remove active class from all weather buttons
+                document.querySelectorAll('.weather-btn').forEach(btn => btn.classList.remove('active'));
+                // Add active class to clicked button
+                document.getElementById('foggybtn').classList.add('active');
                 settings.weather = 'foggy';
                 setupWeatherEffects();
             });
         }
         
-        // Driving mode selection event listeners
-        if (document.getElementById('modeNormal')) {
-            document.getElementById('modeNormal').addEventListener('click', () => {
+        // Driving mode button event listeners
+        if (document.getElementById('normalbtn')) {
+            document.getElementById('normalbtn').addEventListener('click', () => {
+                // Remove active class from all mode buttons
+                document.querySelectorAll('.mode-btn').forEach(btn => btn.classList.remove('active'));
+                // Add active class to clicked button
+                document.getElementById('normalbtn').classList.add('active');
                 settings.drivingMode = 'normal';
-                settings.currentGear = 'A';
+                settings.currentGear = 'D';
                 updateDrivingMode();
             });
         }
         
-        if (document.getElementById('modeSport')) {
-            document.getElementById('modeSport').addEventListener('click', () => {
+        if (document.getElementById('sportbtn')) {
+            document.getElementById('sportbtn').addEventListener('click', () => {
+                // Remove active class from all mode buttons
+                document.querySelectorAll('.mode-btn').forEach(btn => btn.classList.remove('active'));
+                // Add active class to clicked button
+                document.getElementById('sportbtn').classList.add('active');
                 settings.drivingMode = 'sport';
                 settings.currentGear = 'S';
                 updateDrivingMode();
             });
         }
         
-        if (document.getElementById('modeManual')) {
-            document.getElementById('modeManual').addEventListener('click', () => {
+        if (document.getElementById('manualbtn')) {
+            document.getElementById('manualbtn').addEventListener('click', () => {
+                // Remove active class from all mode buttons
+                document.querySelectorAll('.mode-btn').forEach(btn => btn.classList.remove('active'));
+                // Add active class to clicked button
+                document.getElementById('manualbtn').classList.add('active');
                 settings.drivingMode = 'manual';
                 settings.currentGear = 'N';
                 updateDrivingMode();
-            });
-        }
-        
-        // Assist toggles
-        if (document.getElementById('toggleTraction')) {
-            document.getElementById('toggleTraction').addEventListener('click', () => {
-                settings.assists.traction = !settings.assists.traction;
-                if (ui.tractionStatus) {
-                    ui.tractionStatus.textContent = settings.assists.traction ? 'ON' : 'OFF';
-                    ui.tractionStatus.className = settings.assists.traction ? 'on' : 'off';
-                }
-            });
-        }
-        
-        if (document.getElementById('toggleABS')) {
-            document.getElementById('toggleABS').addEventListener('click', () => {
-                settings.assists.abs = !settings.assists.abs;
-                if (ui.absStatus) {
-                    ui.absStatus.textContent = settings.assists.abs ? 'ON' : 'OFF';
-                    ui.absStatus.className = settings.assists.abs ? 'on' : 'off';
-                }
             });
         }
         
