@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D City Driving Simulator</title>
+    <link rel="stylesheet" href="main.css">
+</head>
+<body>
+    <div class="game-container">
+        <!-- Main game canvas -->
+        <canvas id="gameCanvas"></canvas>
+        
+        <!-- Car interior overlay -->
+        <div id="carInterior">
+            <div class="dashboard">
+                <div class="speedometer">
+                    <div class="speed-value">0</div>
+                    <div class="speed-unit">km/h</div>
+                </div>
+                <div class="tachometer">
+                    <div class="rpm-value">0</div>
+                    <div class="rpm-unit">RPM</div>
+                </div>
+                <div class="gear-indicator">N</div>
+                <div class="mode-indicator">NORMAL</div>
+                <div class="weather-indicator">SUNNY</div>
+            </div>
+            <div class="steering-wheel"></div>
+            <img src="dashboard.png" alt="Dashboard" class="dashboard-image" id="dashboardImage">
+            <div class="windshield"></div>
+            <div class="mirror"></div>
+            <div class="side-window left"></div>
+            <div class="side-window right"></div>
+        </div>
+        
+        <!-- Mini-map -->
+        <div id="miniMap">
+            <canvas id="mapCanvas"></canvas>
+            <div class="player-indicator"></div>
+        </div>
+        
+        <!-- Game controls -->
+        <div id="gameControls" class="controls-panel">
+            <div class="controls-header">
+                <h2>Game Controls</h2>
+                <button id="closeControls" class="close-btn">×</button>
+            </div>
+            <div class="controls-group">
+                <h3>Weather</h3>
+                <div class="btn-group">
+                    <button id="sunnybtn" class="control-btn active">Sunny</button>
+                    <button id="rainybtn" class="control-btn">Rainy</button>
+                    <button id="foggybtn" class="control-btn">Foggy</button>
+                </div>
+            </div>
+            <div class="controls-group">
+                <h3>Driving Mode</h3>
+                <div class="btn-group">
+                    <button id="normalbtn" class="control-btn active">Normal</button>
+                    <button id="sportbtn" class="control-btn">Sport</button>
+                    <button id="manualbtn" class="control-btn">Manual</button>
+                </div>
+            </div>
+            <div class="controls-group">
+                <h3>Keyboard Controls</h3>
+                <ul class="key-controls">
+                    <li><span class="key">W / ↑</span> Accelerate</li>
+                    <li><span class="key">S / ↓</span> Brake/Reverse</li>
+                    <li><span class="key">A / ←</span> Turn Left</li>
+                    <li><span class="key">D / →</span> Turn Right</li>
+                    <li><span class="key">Space</span> Handbrake</li>
+                    <li><span class="key">Shift</span> Turbo Boost</li>
+                    <li><span class="key">1-3</span> Change Gears (Manual)</li>
+                    <li><span class="key">M</span> Toggle Map Size</li>
+                    <li><span class="key">H</span> Toggle HUD</li>
+                </ul>
+            </div>
+            <div class="controls-group">
+                <h3>Active Assists</h3>
+                <div id="assistsPanel" class="assists-panel">
+                    <div class="assist-item">Traction Control: <span id="tractionStatus">ON</span></div>
+                    <div class="assist-item">ABS: <span id="absStatus">ON</span></div>
+                    <div class="assist-item">Hydroplaning Detection: <span id="hydroStatus">OFF</span></div>
+                    <div class="assist-item">Fog Assistance: <span id="fogStatus">OFF</span></div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Start menu -->
+        <div id="startMenu" class="start-menu">
+            <h1>3D City Driving Experience</h1>
+            <p>Pilot a bright red sports car through the winding streets of a vibrant city</p>
+            <button id="startGame" class="start-btn">START DRIVING</button>
+            <div class="options-btn-container">
+                <button id="showOptions" class="options-btn">Options</button>
+            </div>
+        </div>
+        
+        <!-- Pause menu -->
+        <div id="pauseMenu" class="pause-menu hidden">
+            <h2>Game Paused</h2>
+            <button id="resumeGame" class="menu-btn">Resume</button>
+            <button id="showControlsBtn" class="menu-btn">Controls</button>
+            <button id="restartGame" class="menu-btn">Restart</button>
+        </div>
+        
+        <!-- HUD buttons -->
+        <div class="hud-buttons">
+            <button id="pauseBtn" class="hud-btn">❚❚</button>
+            <button id="controlsBtn" class="hud-btn">⚙️</button>
+        </div>
+        
+        <!-- Weather effect overlays -->
+        <div id="rainOverlay" class="weather-overlay rain hidden"></div>
+        <div id="fogOverlay" class="weather-overlay fog hidden"></div>
+        
+        <!-- Special feature notifications -->
+        <div id="featureNotification" class="feature-notification hidden">
+            <span id="featureText">Hydroplaning Detection Activated</span>
+        </div>
+    </div>
+    
+    <script src="main.js"></script>
+</body>
+</html>
